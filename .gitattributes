@@ -1,0 +1,61 @@
+* text=auto
+*.7z binary
+*.bat eol=crlf
+*.bmp binary
+*.bz2 binary
+*.bzip2 binary
+*.class binary
+*.css text
+*.csv text
+*.dll binary
+*.ear binary
+*.eps binary
+*.fla binary
+*.flv binary
+*.gz binary
+*.gzip binary
+*.htm text diff=html
+*.html text diff=html
+*.gif binary
+*.ico binary
+*.ini text
+*.java text diff=java
+*.jar binary
+*.js text
+*.json text
+*.jsp text
+*.jspf text
+*.jpeg binary
+*.jpg binary
+*.log text
+*.lst text
+*.md text
+*.mov binary
+*.mp3 binary
+*.mp4 binary
+*.ogg binary
+*.php text diff=php
+*.pdf binary
+*.png binary
+*.properties text
+*.sh eol=lf
+*.so binary
+*.sql text
+*.surf text
+*.svg text
+*.swf binary
+*.tif binary
+*.tiff binary
+*.tld text
+*.ttf binary
+*.turf text
+*.tsv text
+*.txt text
+*.vcf text
+*.war binary
+*.xhtml text diff=html
+*.xsd text
+*.xsl text
+*.xml text
+*.xz binary
+*.zip binary
