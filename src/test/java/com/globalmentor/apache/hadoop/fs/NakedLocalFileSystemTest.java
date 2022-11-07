@@ -20,7 +20,7 @@ import static org.hamcrest.MatcherAssert.*;
 import static org.hamcrest.Matchers.*;
 
 import java.nio.file.attribute.PosixFilePermission;
-import java.util.EnumSet;
+import java.util.*;
 
 import org.apache.hadoop.fs.permission.*;
 import org.junit.jupiter.api.Test;
@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Test;
  */
 public class NakedLocalFileSystemTest {
 
+	/** @see NakedLocalFileSystem#toNioPosixFilePermissions(FsPermission) */
 	@Test
 	void testToNioPosixFilePermissions() {
 		assertThat(NakedLocalFileSystem.toNioPosixFilePermissions(new FsPermission(FsAction.NONE, FsAction.NONE, FsAction.NONE)),
@@ -42,4 +43,27 @@ public class NakedLocalFileSystemTest {
 				is(EnumSet.allOf(PosixFilePermission.class)));
 	}
 
+	/** @see NakedLocalFileSystem#toFsPermission(Set) */
+	@Test
+	void testToFsPermission() {
+		assertThat(NakedLocalFileSystem.toFsPermission(EnumSet.noneOf(PosixFilePermission.class)),
+				is(new FsPermission(FsAction.NONE, FsAction.NONE, FsAction.NONE)));
+		assertThat(
+				NakedLocalFileSystem.toFsPermission(EnumSet.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE, PosixFilePermission.OWNER_EXECUTE,
+						PosixFilePermission.GROUP_READ, PosixFilePermission.GROUP_EXECUTE, PosixFilePermission.OTHERS_READ)),
+				is(new FsPermission(FsAction.ALL, FsAction.READ_EXECUTE, FsAction.READ)));
+		assertThat(NakedLocalFileSystem.toFsPermission(EnumSet.allOf(PosixFilePermission.class)), is(new FsPermission(FsAction.ALL, FsAction.ALL, FsAction.ALL)));
+
+	}
+
+	/** @see NakedLocalFileSystem#fsActionOf(boolean, boolean, boolean) */
+	@Test
+	void testFsActionOf() {
+		assertThat(NakedLocalFileSystem.fsActionOf(false, false, false), is(FsAction.NONE));
+		assertThat(NakedLocalFileSystem.fsActionOf(true, false, false), is(FsAction.READ));
+		assertThat(NakedLocalFileSystem.fsActionOf(false, true, false), is(FsAction.WRITE));
+		assertThat(NakedLocalFileSystem.fsActionOf(false, false, true), is(FsAction.EXECUTE));
+		assertThat(NakedLocalFileSystem.fsActionOf(true, false, true), is(FsAction.READ_EXECUTE));
+		assertThat(NakedLocalFileSystem.fsActionOf(true, true, true), is(FsAction.ALL));
+	}
 }
