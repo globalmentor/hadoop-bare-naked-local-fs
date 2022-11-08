@@ -22,9 +22,11 @@ import static java.util.Objects.*;
 import java.io.*;
 import java.net.URI;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.attribute.*;
 import java.util.*;
+import java.util.stream.Stream;
 
 import javax.annotation.*;
 
@@ -164,6 +166,47 @@ public class NakedLocalFileSystem extends RawLocalFileSystem {
 
 	/**
 	 * {@inheritDoc}
+	 * @implSpec This implementation delegates to {@link #listStatus(java.nio.file.Path)}.
+	 */
+	@Override
+	public FileStatus[] listStatus(final Path path) throws IOException {
+		return listStatus(toNioPath(path));
+	}
+
+	/**
+	 * List the statuses of the files/directories in the given path if the path is a directory; otherwise returns an array containing the status of the path
+	 * itself. The statuses are not guaranteed to be returned in any particular order.
+	 * @param nioPath The Java NIO path for which to list directories.
+	 * @return The statuses of the files/directories in the given path.
+	 * @throws FileNotFoundException when the path does not exist.
+	 * @throws IOException If a general I/O exception occurs.
+	 */
+	public FileStatus[] listStatus(final java.nio.file.Path nioPath) throws FileNotFoundException, IOException {
+		if(!Files.isDirectory(nioPath, LinkOption.NOFOLLOW_LINKS)) { //if this is not a directory (and not _supposed_ to be a directory, so don't follow symlinks)
+			return new FileStatus[] {getFileStatus(nioPath)}; //return non-directories as a single list of the single file
+		}
+
+		//no need to check if path exists --- listing its contents will do this automatically anyway
+		try (final Stream<java.nio.file.Path> childNioPaths = Files.list(nioPath)) {
+			return childNioPaths.map(childNioPath -> {
+				try {
+					return getFileStatus(childNioPath);
+				} catch(final FileNotFoundException fileNotFoundException) {
+					//If a child disappears before we can describe it, don't consider that an error;
+					//instead, consider that the directory listing has changed. (This implies that the
+					//exact static directory list returned might never have existed at any point in time.)
+					return null;
+				} catch(final IOException ioException) {
+					throw new UncheckedIOException(ioException); //another approach would be to use FauxPas or similar
+				}
+			}).filter(Objects::nonNull).toArray(FileStatus[]::new);
+		} catch(final UncheckedIOException uncheckedIOException) {
+			throw uncheckedIOException.getCause();
+		}
+	}
+
+	/**
+	 * {@inheritDoc}
 	 * @implSpec This method delegates to {@link #getFileStatus(java.nio.file.Path)}.
 	 */
 	@Override
@@ -176,7 +219,7 @@ public class NakedLocalFileSystem extends RawLocalFileSystem {
 	 * @param nioPath The Java NIO path path we want information from.
 	 * @return A file status instance describing the file.
 	 * @throws FileNotFoundException if the path does not exist.
-	 * @throws IOException see specific implementation
+	 * @throws IOException If a general I/O exception occurs.
 	 */
 	public FileStatus getFileStatus(final java.nio.file.Path nioPath) throws IOException {
 		try {
