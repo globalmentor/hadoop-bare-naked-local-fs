@@ -43,4 +43,9 @@ public class BareLocalFileSystem extends LocalFileSystem {
 		super(rawLocalFileSystem);
 	}
 
+	@Override
+	public boolean supportsSymlinks() {
+		return getRawFileSystem().supportsSymlinks();
+	}
+
 }

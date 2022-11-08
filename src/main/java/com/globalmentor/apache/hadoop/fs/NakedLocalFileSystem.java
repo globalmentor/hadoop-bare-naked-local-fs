@@ -63,6 +63,17 @@ public class NakedLocalFileSystem extends RawLocalFileSystem {
 	}
 
 	/**
+	 * {@inheritDoc}
+	 * @implSpec This implementation returns <code>false</code> because symbolic links are not yet supported.
+	 * @implNote It does not appears that the default code in the the parent {@link RawLocalFileSystem} and related classes actually <em>check</em> this indicator
+	 *           at the appropriate places, so it is not guaranteed that symlink-related calls will fail-fast with an appropriate error.
+	 */
+	@Override
+	public boolean supportsSymlinks() {
+		return false;
+	}
+
+	/**
 	 * Converts a Hadoop path to a Java NIO path.
 	 * @implNote This implementation leverages the existing {@link RawLocalFileSystem#pathToFile(Path)} method. It should be improved to use pure NIO methods,
 	 *           obviating the need for an intermediate {@link File} conversion.
