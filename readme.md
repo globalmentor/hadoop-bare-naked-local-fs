@@ -45,11 +45,20 @@ Unfortunately solving the problem of Hadoop's default local file system accessin
 * Apparently there is a "new [`Stat`](https://github.com/apache/hadoop/blob/trunk/hadoop-common-project/hadoop-common/src/main/java/org/apache/hadoop/fs/Stat.java) based implementation" of many methods, but `RawLocalFileSystem` instead uses a deprecated implementations such as `DeprecatedRawLocalFileStatus`, which is full of workarounds and special-cases, is package-private so it can't be accessed by subclasses, yet can't be removed because of [HADOOP-9652](https://issues.apache.org/jira/browse/HADOOP-9652). The `useDeprecatedFileStatus` switch is hard-coded so that it can't be modified by a subclass, forcing a re-implementation of everything it touches. In other words, even the new, less-kludgey approach is switched off in the code, has been for years, and no one seems to be paying it any mind.
 * `DeprecatedRawLocalFileStatus` tries to detect if permissions have already been loaded for a file. It checks for an empty string owner; in some conditions (a shell error) the owner is set to `null`, which under the covers actually sets the value to `""`, making the whole process brittle. Moreover an error condition would cause an endless cycle of attempting to load permissions. (And what is `CopyFiles.FilePair()`, and does the current implementation break it, or would it only be broken if "extra fields" are added?)
 ```java
-		/* We can add extra fields here. It breaks at least CopyFiles.FilePair().
-		 * We recognize if the information is already loaded by check if
-		 * onwer.equals("").
-		 */
-		private boolean isPermissionLoaded() {
-			return !super.getOwner().isEmpty();
-		}
+    /* We can add extra fields here. It breaks at least CopyFiles.FilePair().
+     * We recognize if the information is already loaded by check if
+     * onwer.equals("").
+     */
+    private boolean isPermissionLoaded() {
+      return !super.getOwner().isEmpty();
+    }
+```
+* Apparently `FileSystem` supports two concepts of whether symlinks are _supported_ (`FileSystem.supportsSymlinks()`) and whether they are _enabled_ (`FileSystem.areSymlinksEnabled()`) on a global level across all Hadoop `FileSystem` implementations on the JVM. Symlinks were apparently disabled back in Hadoop 2.x via [HADOOP-10020](https://issues.apache.org/jira/browse/HADOOP-10020) and [HADOOP-10052](https://issues.apache.org/jira/browse/HADOOP-10052); the current status is unclear. Unfortunately symlink-related code such as `RawLocalFileSystem.createSymlink()` checks to see only whether symlinks have been _enabled_ globally (which can happen without them being supported on any particular `FileSystem` instance) but then if not reports that the are not _supported_, thus presenting a confusing, conflicting mess of semantics and user communication.
+```java
+  public void createSymlink(Path target, Path link, boolean createParent)
+      throws IOException {
+    if (!FileSystem.areSymlinksEnabled()) {
+      throw new UnsupportedOperationException("Symlinks not supported");
+    }
+    …
 ```
