@@ -21,7 +21,7 @@ SparkSession spark = SparkSession.builder().appName("Foo Bar").master("local").g
 spark.sparkContext().hadoopConfiguration().setClass("fs.file.impl", BareLocalFileSystem.class, FileSystem.class);
 ```
 
-_Note that you may still get warnings that "HADOOP_HOME and hadoop.home.dir are unset" and "Did not find winutils.exe". This is because the Winutils kludge is permeates the Hadoop code and is hard-coded at a low-level, executed statically upon class loading, even for code completely unrelated to file access. See [HADOOP-13223: winutils.exe is a bug nexus and should be killed with an axe.](https://issues.apache.org/jira/browse/HADOOP-13223)_
+_Note that you may still get warnings that "HADOOP_HOME and hadoop.home.dir are unset" and "Did not find winutils.exe". This is because the Winutils kludge permeates the Hadoop code and is hard-coded at a low-level, executed statically upon class loading, even for code completely unrelated to file access. See [HADOOP-13223: winutils.exe is a bug nexus and should be killed with an axe.](https://issues.apache.org/jira/browse/HADOOP-13223)_
 
 ## Limitations
 
@@ -43,11 +43,11 @@ This Hadoop Bare Naked Local File System project bypasses winutils and forces Ha
 
 ## Implementation Caveats (problems brought by `LocalFileSystem` and `RawLocalFileSystem`)
 
-This Hadoop Bare Naked Local File System implementation extends `LocalFileSystem` and `RawLocalFileSystem` and "reverses" or "undoes" as much as possible JNI and shell access. Much of the original Hadoop kludge implementation is still present beneath the seurface (meaning that "Bare Naked" is for the moment a bit of a misnomer).
+This Hadoop Bare Naked Local File System implementation extends `LocalFileSystem` and `RawLocalFileSystem` and "reverses" or "undoes" as much as possible JNI and shell access. Much of the original Hadoop kludge implementation is still present beneath the surface (meaning that "Bare Naked" is for the moment a bit of a misnomer).
 
 Unfortunately solving the problem of Hadoop's default local file system accessing isn't as simple as just changing native/shell calls to their modern Java equivalents. The current `LocalFileSystem` and `RawLocalFileSystem` implementations have evolved haphazardly, with halway-implemented features scattered about, special-case code for ill-documented corner cases, and implementation-specific assumptions permeating the design itself. Here are a few examples.
 
-* Tentacled references to Winutils are practically everywhere, even where you least expect it. When Spark starts up, the (shaded) `org.apache.hadoop.security.SecurityUtil` class statically sets up an internal configuration object using `setConfigurationInternal(new Configuration())`. Part of this initialization calls `conf.getBoolean(CommonConfigurationKeys.HADOOP_SECURITY_TOKEN_SERVICE_USE_IP CommonConfigurationKeys.HADOOP_SECURITY_TOKEN_SERVICE_USE_IP_DEFAULT)`. What could `Configuration.setBoolean()` have to do with Winutils? The (shaded) `org.apache.hadoop.conf.Configuration.getBoolean(String name, boolean defaultValue)` method uses `StringUtils.equalsIgnoreCase("true", valueString)` to convert the String to Boolean, and the (shaded) `org.apache.hadoop.util.StringUtils` class has a static reference to `Shell` in `public static final Pattern ENV_VAR_PATTERN = Shell.WINDOWS ? WIN_ENV_VAR_PATTERN : SHELL_ENV_VAR_PATTERN`. Simply references `Shell` brings in the whole static initialization block that looks for Winutils. This is low-level, hard-coded stuff (trash) that represented a bad design to begin with. (These sort of things should be pluggable and configurable, not hard-coded into static initializations.)
+* Tentacled references to Winutils are practically everywhere, even where you least expect it. When Spark starts up, the (shaded) `org.apache.hadoop.security.SecurityUtil` class statically sets up an internal configuration object using `setConfigurationInternal(new Configuration())`. Part of this initialization calls `conf.getBoolean(CommonConfigurationKeys.HADOOP_SECURITY_TOKEN_SERVICE_USE_IP CommonConfigurationKeys.HADOOP_SECURITY_TOKEN_SERVICE_USE_IP_DEFAULT)`. What could `Configuration.setBoolean()` have to do with Winutils? The (shaded) `org.apache.hadoop.conf.Configuration.getBoolean(String name, boolean defaultValue)` method uses `StringUtils.equalsIgnoreCase("true", valueString)` to convert the String to Boolean, and the (shaded) `org.apache.hadoop.util.StringUtils` class has a static reference to `Shell` in `public static final Pattern ENV_VAR_PATTERN = Shell.WINDOWS ? WIN_ENV_VAR_PATTERN : SHELL_ENV_VAR_PATTERN`. Simply referencing `Shell` brings in the whole static initialization block that looks for Winutils. This is low-level, hard-coded stuff (trash) that represented a bad design to begin with. (These sort of things should be pluggable and configurable, not hard-coded into static initializations.)
 ```java
     if (WINDOWS) {
       try {
@@ -64,7 +64,7 @@ Unfortunately solving the problem of Hadoop's default local file system accessin
       }
     } else {
 ```
-* A the `FileSystem` level Winutils-related logic isn't contained to `RawLocalFileSystem`, which would have allowed it to easily be overridden, but instead relies on the static [`FileUtil`](https://github.com/apache/hadoop/blob/trunk/hadoop-common-project/hadoop-common/src/main/java/org/apache/hadoop/fs/FileUtil.java) class which is like a separate file system implementation that relies on Winutils and can't be modified. For example here is `FileUtil` code that would need to be updated, unfortunately independently of the `FileSystem` implementation:
+* At the `FileSystem` level Winutils-related logic isn't contained to `RawLocalFileSystem`, which would have allowed it to easily be overridden, but instead relies on the static [`FileUtil`](https://github.com/apache/hadoop/blob/trunk/hadoop-common-project/hadoop-common/src/main/java/org/apache/hadoop/fs/FileUtil.java) class which is like a separate file system implementation that relies on Winutils and can't be modified. For example here is `FileUtil` code that would need to be updated, unfortunately independently of the `FileSystem` implementation:
 ```java
   public static String readLink(File f) {
     /* NB: Use readSymbolicLink in java.nio.file.Path once available. Could
