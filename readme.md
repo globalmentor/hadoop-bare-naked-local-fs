@@ -4,6 +4,31 @@ A Hadoop local `FileSystem` implementation directly accessing the Java API witho
 
 _The name of this project refers to the `BareLocalFileSystem` and `NakedLocalFileSystem` classes, and is a lighthearded reference to the Hadoop `RawLocalFileSystem` class which `NakedLocalFileSystem` extends—a play on the Portuguese expression, "a verdade, nua e crua" ("the raw, naked truth")._
 
+## Usage
+
+1. If you have an application that needs Hadoop local `FileSystem` support without relying on Winutils, import the latest [`com.globalmentor:hadoop-bare-naked-local-fs`](https://search.maven.org/artifact/com.globalmentor/hadoop-bare-naked-local-fs) library into your project, e.g. in Maven for v0.1.0:
+```xml
+<dependency>
+  <groupId>com.globalmentor</groupId>
+  <artifactId>hadoop-bare-naked-local-fs</artifactId>
+  <version>0.1.0</version>
+</dependency>
+```
+
+2. Then specify that you want to use the Bare Local File System implementation `com.globalmentor.apache.hadoop.fs.BareLocalFileSystem` for the `file` scheme. (`BareLocalFileSystem` internally uses `NakedLocalFileSystem`.)  The following example does this for Spark in Java:
+```java
+SparkSession spark = SparkSession.builder().appName("Foo Bar").master("local").getOrCreate();
+spark.sparkContext().hadoopConfiguration().setClass("fs.file.impl", BareLocalFileSystem.class, FileSystem.class);
+```
+
+_Note that you may still get warnings that "HADOOP_HOME and hadoop.home.dir are unset" and "Did not find winutils.exe". This is because the Winutils kludge is permeates the Hadoop code and is hard-coded at a low-level, executed statically upon class loading, even for code completely unrelated to file access. See [HADOOP-13223: winutils.exe is a bug nexus and should be killed with an axe.](https://issues.apache.org/jira/browse/HADOOP-13223)_
+
+## Limitations
+
+* The current implementation does not handle symbolic links, but this is planned.
+* The current implementation does not register as a service supporting the `file` scheme, and instead must be specified manually. A future version will register with Java's service loading mechanism as `org.apache.hadoop.fs.LocalFileSystem` does, although this will still require manual specification in an environment such as Spark, because there would be two conflicting registered file systems for `file`.
+* The current implementation does not support the *nix [sticky bit](https://en.wikipedia.org/wiki/Sticky_bit).
+
 ## Background
 
 The [Apache Hadoop](https://hadoop.apache.org/) [`FileSystem`](https://github.com/apache/hadoop/blob/trunk/hadoop-common-project/hadoop-common/src/main/java/org/apache/hadoop/fs/FileSystem.java) was designed tightly coupled to *unix file systems. It assumes of POSIX file permissions. Its [model](https://hadoop.apache.org/docs/stable/hadoop-project-dist/hadoop-common/filesystem/model.html) definition is still sparse. Little thought was put into creating a general file access API that could be implemented across platforms. File access on non *nix systems such as Windows was largely ignored and few cared.
@@ -16,18 +41,30 @@ In order to allow `RawLocalFileSystem` to function on Windows (for example to ru
 
 This Hadoop Bare Naked Local File System project bypasses winutils and forces Hadoop to access the file system via pure Java. The `BareLocalFileSystem` and `NakedLocalFileSystem` classes are versions of `LocalFileSystem` and `RawLocalFileSystem`, respectively, which bypass the outdated native and shell access to the local file system and use the Java API instead. It means that projects like Spark can access the file system on Windows as well as on other platforms, without the need to pull in some third-party kludge such as Winutils.
 
-## Limitations
-
-* The current implementation does not handle symbolic links, but this is planned.
-* The current implementation does not support the *nix [sticky bit](https://en.wikipedia.org/wiki/Sticky_bit).
-
 ## Implementation Caveats (problems brought by `LocalFileSystem` and `RawLocalFileSystem`)
 
 This Hadoop Bare Naked Local File System implementation extends `LocalFileSystem` and `RawLocalFileSystem` and "reverses" or "undoes" as much as possible JNI and shell access. Much of the original Hadoop kludge implementation is still present beneath the seurface (meaning that "Bare Naked" is for the moment a bit of a misnomer).
 
 Unfortunately solving the problem of Hadoop's default local file system accessing isn't as simple as just changing native/shell calls to their modern Java equivalents. The current `LocalFileSystem` and `RawLocalFileSystem` implementations have evolved haphazardly, with halway-implemented features scattered about, special-case code for ill-documented corner cases, and implementation-specific assumptions permeating the design itself. Here are a few examples.
 
-* Winutils-related logic isn't contained to `RawLocalFileSystem`, allowing it to easily be overridden, but instead relies on the static [`FileUtil`](https://github.com/apache/hadoop/blob/trunk/hadoop-common-project/hadoop-common/src/main/java/org/apache/hadoop/fs/FileUtil.java) class which is like a separate file system implementation that relies on Winutils and can't be modified. For example here is `FileUtil` code that would need to be updated, unfortunately independently of the `FileSystem` implementation:
+* Tentacled references to Winutils are practically everywhere, even where you least expect it. When Spark starts up, the (shaded) `org.apache.hadoop.security.SecurityUtil` class statically sets up an internal configuration object using `setConfigurationInternal(new Configuration())`. Part of this initialization calls `conf.getBoolean(CommonConfigurationKeys.HADOOP_SECURITY_TOKEN_SERVICE_USE_IP CommonConfigurationKeys.HADOOP_SECURITY_TOKEN_SERVICE_USE_IP_DEFAULT)`. What could `Configuration.setBoolean()` have to do with Winutils? The (shaded) `org.apache.hadoop.conf.Configuration.getBoolean(String name, boolean defaultValue)` method uses `StringUtils.equalsIgnoreCase("true", valueString)` to convert the String to Boolean, and the (shaded) `org.apache.hadoop.util.StringUtils` class has a static reference to `Shell` in `public static final Pattern ENV_VAR_PATTERN = Shell.WINDOWS ? WIN_ENV_VAR_PATTERN : SHELL_ENV_VAR_PATTERN`. Simply references `Shell` brings in the whole static initialization block that looks for Winutils. This is low-level, hard-coded stuff (trash) that represented a bad design to begin with. (These sort of things should be pluggable and configurable, not hard-coded into static initializations.)
+```java
+    if (WINDOWS) {
+      try {
+        file = getQualifiedBin(WINUTILS_EXE);
+        path = file.getCanonicalPath();
+        org.apache.hadoop.shaded.io. = null;
+      } catch (IOException e) {
+        LOG.warn("Did not find {}: {}", WINUTILS_EXE, e);
+        // stack trace org.apache.hadoop.shaded.com.s at debug level
+        LOG.debug("Failed to find " + WINUTILS_EXE, e);
+        file = null;
+        path = null;
+        org.apache.hadoop.shaded.io. = e;
+      }
+    } else {
+```
+* A the `FileSystem` level Winutils-related logic isn't contained to `RawLocalFileSystem`, which would have allowed it to easily be overridden, but instead relies on the static [`FileUtil`](https://github.com/apache/hadoop/blob/trunk/hadoop-common-project/hadoop-common/src/main/java/org/apache/hadoop/fs/FileUtil.java) class which is like a separate file system implementation that relies on Winutils and can't be modified. For example here is `FileUtil` code that would need to be updated, unfortunately independently of the `FileSystem` implementation:
 ```java
   public static String readLink(File f) {
     /* NB: Use readSymbolicLink in java.nio.file.Path once available. Could
@@ -52,13 +89,4 @@ Unfortunately solving the problem of Hadoop's default local file system accessin
     private boolean isPermissionLoaded() {
       return !super.getOwner().isEmpty();
     }
-```
-* Apparently `FileSystem` supports two concepts of whether symlinks are _supported_ on any particular file system (`FileSystem.supportsSymlinks()`) and whether they are _enabled_ (`FileSystem.areSymlinksEnabled()`) on a global level across all Hadoop `FileSystem` implementations on the JVM. Symlinks were apparently disabled back in Hadoop 2.x via [HADOOP-10020](https://issues.apache.org/jira/browse/HADOOP-10020) and [HADOOP-10052](https://issues.apache.org/jira/browse/HADOOP-10052); the current status is unclear. Unfortunately symlink-related code such as `RawLocalFileSystem.createSymlink()` checks to see only whether symlinks have been _enabled_ globally (which can happen without them being _supported_ on any particular `FileSystem` instance) but then if not reports that the are not _supported_, thus presenting a confusing, conflicting mess of semantics and user communication.
-```java
-  public void createSymlink(Path target, Path link, boolean createParent)
-      throws IOException {
-    if (!FileSystem.areSymlinksEnabled()) {
-      throw new UnsupportedOperationException("Symlinks not supported");
-    }
-    …
 ```
