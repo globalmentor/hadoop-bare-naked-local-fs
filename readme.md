@@ -17,9 +17,13 @@ _The name of this project refers to the `BareLocalFileSystem` and `NakedLocalFil
 
 2. Then specify that you want to use the Bare Local File System implementation `com.globalmentor.apache.hadoop.fs.BareLocalFileSystem` for the `file` scheme. (`BareLocalFileSystem` internally uses `NakedLocalFileSystem`.)  The following example does this for Spark in Java:
 ```java
-SparkSession spark = SparkSession.builder().appName("Foo Bar").master("local").getOrCreate();
-spark.sparkContext().hadoopConfiguration().setClass("fs.file.impl", BareLocalFileSystem.class, FileSystem.class);
+SparkSession spark = SparkSession.builder().appName("Foo Bar").master("local").
+        config("spark.hadoop.fs.file.impl", BareLocalFileSystem.class.getName()).
+        config("spark.hadoop.fs.AbstractFileSystem.file.impl", BareStreamingLocalFileSystem.class.getName()).
+        getOrCreate();
 ```
+
+The config should be set before getOrCreate as Spark processes such as local meta-stores are already evaluating the Hadoop FS _before_ any hadoop config setClass call.  The AbstractFileSystem property is required to enable streaming checkpoint operations.
 
 _Note that you may still get warnings that "HADOOP_HOME and hadoop.home.dir are unset" and "Did not find winutils.exe". This is because the Winutils kludge permeates the Hadoop code and is hard-coded at a low-level, executed statically upon class loading, even for code completely unrelated to file access. See [HADOOP-13223: winutils.exe is a bug nexus and should be killed with an axe.](https://issues.apache.org/jira/browse/HADOOP-13223)_
 
